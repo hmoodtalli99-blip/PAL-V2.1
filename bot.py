@@ -47,7 +47,7 @@ def db_setup():
     cur.execute('''CREATE TABLE IF NOT EXISTS trades 
                    (id SERIAL, inst TEXT, team TEXT, dir TEXT, result TEXT, profit FLOAT, time TIMESTAMP, report TEXT)''')
     cur.execute("CREATE TABLE IF NOT EXISTS brain (id int, balance float, wins int, losses int)")
-    cur.execute("INSERT INTO brain VALUES (1, 50.0, 'G') ON CONFLICT (id) DO NOTHING")
+    cur.execute("INSERT INTO brain (id, value, data) VALUES (1, 50.0, 'G') ON CONFLICT (id) DO NOTHING")
     conn.commit()
     conn.close()
 
