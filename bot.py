@@ -10,7 +10,7 @@ import telebot
 from ta import trend, momentum, volatility
 from ta.trend import IchimokuIndicator
 
-# ========== 1. الاعدادات ==========
+# ========== 1. الإعدادات ==========
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 FINNHUB_KEY = os.environ.get("FINNHUB_KEY")
 DB_URL = os.environ.get("DATABASE_URL")
@@ -23,11 +23,11 @@ RISK_PERCENT = 0.01
 SPREAD_PIPS = 0.3
 
 TEAM_RULES = {
-    "sniper": {"lock_profit": 0.15, "target1": 0.3, "risk": 0.002}, # 0.2%
+    "sniper": {"lock_profit": 0.15, "target1": 0.3, "risk": 0.002},  # 0.2%
     "scalp": {"lock_profit": 0.5, "target1": 1.0, "risk": 0.01},
     "daily": {"lock_profit": 2.0, "target1": 4.0, "risk": 0.01},
     "swing": {"lock_profit": 5.0, "target1": 10.0, "risk": 0.01}
-} # تم إصلاح الخطأ وإضافة قوس الإغلاق هنا
+}
 
 GOLD_KING = {"key": "XAUUSD", "name": "الذهب"}
 
@@ -36,6 +36,7 @@ TRADING_ALGORITHMS = {}
 TRADING_LIBRARY_RAW = {}
 RECENT_EXITS = {}
 
+
 # ========== 2. قاعدة البيانات ==========
 def db_connect():
     return psycopg2.connect(DB_URL, sslmode='require')
@@ -43,7 +44,8 @@ def db_connect():
 def db_setup():
     conn = db_connect()
     cur = conn.cursor()
-    cur.execute("CREATE TABLE IF NOT EXISTS trades (id SERIAL, inst TEXT, team TEXT, dir TEXT, result TEXT, profit FLOAT, time TIMESTAMP, report TEXT)")
+    cur.execute('''CREATE TABLE IF NOT EXISTS trades 
+                   (id SERIAL, inst TEXT, team TEXT, dir TEXT, result TEXT, profit FLOAT, time TIMESTAMP, report TEXT)''')
     cur.execute("CREATE TABLE IF NOT EXISTS brain (id int, balance float, wins int, losses int)")
     cur.execute("INSERT INTO brain VALUES (1, 50.0, 0, 0) ON CONFLICT (id) DO NOTHING")
     conn.commit()
@@ -68,15 +70,16 @@ def update_balance(change):
     conn.commit()
     conn.close()
 
-def save_trade(inst, team, dir, result, profit, report):
+def save_trade(inst, team, direction, result, profit, report):
     conn = db_connect()
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO trades (inst, team, dir, result, profit, time, report) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-        (inst, team, dir, result, profit, datetime.datetime.now(), report)
+        (inst, team, direction, result, profit, datetime.datetime.now(), report)
     )
     conn.commit()
     conn.close()
+
 
 # ========== 3. جلب البيانات ==========
 def fetch_biquote(symbol, timeframe, limit=100):
@@ -86,24 +89,26 @@ def fetch_biquote(symbol, timeframe, limit=100):
             url = f"https://api.finnhub.io/api/v1/crypto/candle?symbol=BINANCE:XAUUSD&resolution={timeframe}&count={limit}&token={FINNHUB_KEY}"
         
         data = requests.get(url, timeout=10).json()
-        if data['s'] != 'ok':
+        if data.get('s') != 'ok':
             return pd.DataFrame()
         
         df = pd.DataFrame({'o': data['o'], 'h': data['h'], 'l': data['l'], 'c': data['c']})
         return df
-    except:
+    except Exception as e:
+        print(f"Error fetching data: {e}")
         return pd.DataFrame()
 
 def gza_now():
     return datetime.datetime.now(GZA)
 
+
 # ========== 4. الـ 15 عقل ==========
-def Engineer_Brain(df): # EMA
+def Engineer_Brain(df):
     ema50 = trend.EMAIndicator(df['c'], 50).ema_indicator().iloc[-1]
     ema200 = trend.EMAIndicator(df['c'], 200).ema_indicator().iloc[-1]
     return (3, "الاتجاه صاعد") if ema50 > ema200 else (-3, "الاتجاه هابط")
 
-def MarketMaker_Brain(df): # السيولة
+def MarketMaker_Brain(df):
     return (2, "سيولة") if df['c'].iloc[-1] > df['c'].iloc[-2] else (-2, "لا سيولة")
 
 def LibraryBrain(df):
@@ -112,10 +117,11 @@ def LibraryBrain(df):
             return 3, f"المكتبة: {rule}"
     return 0, "المكتبة: محايد"
 
-def Sniper_Brain(df_1m, df_5m): # فريق القناص
+def Sniper_Brain(df_1m, df_5m):
     score, report = 0, ""
     
-    ichi = IchimokuIndicator(df_5m['h'], df_5m['l'], df_5m['c'])
+    # تم تصحيح المعطيات لتقبل high و low فقط
+    ichi = IchimokuIndicator(high=df_5m['h'], low=df_5m['l'])
     if df_5m['c'].iloc[-1] > ichi.ichimoku_a().iloc[-1]:
         score += 3
         report += "Ichi فوق السحابة +3\n"
@@ -153,6 +159,7 @@ def get_today_loss():
     res = cur.fetchone()[0]
     conn.close()
     return res if res else 0
+
 
 # ========== 5. الملك والتنفيذ ==========
 def King_Brain(inst, team="daily"):
@@ -193,13 +200,13 @@ def King_Brain(inst, team="daily"):
 
 def feedback_loop(inst, direction, entry, sl, tp, report, team):
     rules = TEAM_RULES[team]
-    r = abs(tp - entry) / abs(entry - sl)
+    r = abs(tp - entry) / abs(entry - sl) if abs(entry - sl) > 0 else 0
     
     if r < 2.0:
         return
         
     risk_amount = get_balance() * rules['risk']
-    lot = round(risk_amount / (abs(entry - sl) * 100), 2)
+    lot = round(risk_amount / (abs(entry - sl) * 100), 2) if abs(entry - sl) > 0 else 0.01
     trade_id = f"{inst}_{team}_{int(time.time())}"
     
     OPEN_TRADES[trade_id] = {
@@ -207,7 +214,7 @@ def feedback_loop(inst, direction, entry, sl, tp, report, team):
         "tp": tp, "lot": lot, "team": team, "report": report, "stage": 0
     }
     
-    send_telegram(f"👑 [{team}] {direction} {inst}\nLot: {lot}\nEntry: {entry}\nSL: {sl}\nTP: {tp}\nRisk: {risk_amount:.2f}$")
+    send_telegram(f"👑 [{team}] {direction} {inst}\nLot: {lot}\nEntry: {entry}\nSL: {sl}\nTP: {tp}\nRisk: ${risk_amount:.2f}")
     threading.Thread(target=monitor_trade, args=(trade_id,)).start()
 
 def monitor_trade(trade_id):
@@ -232,15 +239,15 @@ def monitor_trade(trade_id):
             trade['stage'] = 1
             send_telegram(f"🛡️ [{team}] تأمين SL -> {new_sl:.2f}")
 
-        # جني ارباح نص
+        # جني أرباح النصف
         if trade['stage'] == 1 and profit_now >= rules['target1']:
             profit = rules['target1'] * trade['lot'] * 100 * 0.5
             update_balance(profit)
             trade['sl'] = trade['entry'] + rules['lock_profit']
             trade['stage'] = 2
-            send_telegram(f"🎯 [{team}] هدف اول. قفلنا نص +{profit:.2f}$")
+            send_telegram(f"🎯 [{team}] هدف أول. قفلنا النصف +${profit:.2f}")
 
-        # اغلاق
+        # الإغلاق النهائي (حاليًا مبرمج لصفقات الشراء BUY فقط)
         if trade['dir'] == "BUY":
             if price >= trade['tp']:
                 profit = (trade['tp'] - trade['entry']) * trade['lot'] * 100
@@ -258,7 +265,11 @@ def monitor_trade(trade_id):
         del OPEN_TRADES[trade_id]
 
 def send_telegram(msg):
-    bot.send_message(CHAT_ID, msg, parse_mode="HTML")
+    try:
+        bot.send_message(CHAT_ID, msg, parse_mode="HTML")
+    except Exception as e:
+        print(f"Telegram Error: {e}")
+
 
 # ========== 6. الحلقات ==========
 def sniper_loop():
@@ -281,24 +292,31 @@ def swing_loop():
         King_Brain(GOLD_KING, "swing")
         time.sleep(3600)
 
-# ========== 7. اوامر التليجرام ==========
+
+# ========== 7. أوامر التليجرام ==========
 @bot.message_handler(commands=['start'])
 def start(m):
     send_telegram("👑 PAL v7.5 اشتغل. 4 فرق في الخدمة")
 
 @bot.message_handler(commands=['balance'])
 def balance(m):
-    send_telegram(f"💰 الرصيد الديمو: {get_balance():.2f}$")
+    send_telegram(f"💰 الرصيد الديمو: ${get_balance():.2f}")
 
-@bot.message_handler(commands=['report']
+@bot.message_handler(commands=['report'])
 def report(m):
     send_telegram("التقرير اليومي: شغال")
+
 
 # ========== 8. التشغيل ==========
 if __name__ == "__main__":
     db_setup()
-    threading.Thread(target=sniper_loop).start()
-    threading.Thread(target=scalp_loop).start()
-    threading.Thread(target=daily_loop).start()
-    threading.Thread(target=swing_loop).start()
-    bot.infinity_polling()
+    threading.Thread(target=sniper_loop, daemon=True).start()
+    threading.Thread(target=scalp_loop, daemon=True).start()
+    threading.Thread(target=daily_loop, daemon=True).start()
+    threading.Thread(target=swing_loop, daemon=True).start()
+    
+    print("Bot is running...")
+    try:
+        bot.infinity_polling()
+    except Exception as e:
+        print(f"Polling Error: {e}")
