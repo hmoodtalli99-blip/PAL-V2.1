@@ -290,7 +290,7 @@ def start(m):
 def balance(m):
     send_telegram(f"💰 الرصيد الديمو: {get_balance():.2f}$")
 
-@bot.message_handler(commands=['report'])
+@bot.message_handler(commands=['report']
 def report(m):
     send_telegram("التقرير اليومي: شغال")
 
