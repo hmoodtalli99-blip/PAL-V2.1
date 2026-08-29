@@ -1,6 +1,6 @@
-requests
-numpy
-pandas
 pyTelegramBotAPI
-flask
-gunicorn
+pandas
+requests
+psycopg2-binary
+ta
+pytz
