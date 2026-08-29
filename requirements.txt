@@ -1,6 +1,9 @@
-pytz
-requests
+pyTelegramBotAPI
 psycopg2-binary
 pandas
-pyTelegramBotAPI
+pytz
+requests
 ta
+python-dotenv
+fastapi
+uvicorn
